@@ -10,10 +10,11 @@
 // Threshold Values
 #define TURN_TRIGGER_DIST 5
 #define MIN_TIME_TO_TURN 5000 // ms
+#define SERVO_MIN_MAX 30
 
 // Pin Configuration
-#define SERVO_PIN 9          // CONNECT TO PORT P9
-#define THRUST_FAN_PIN 5     // PORT P3
+#define SERVO_PIN 5          // CONNECT TO PORT P9
+#define THRUST_FAN_PIN 9     // PORT P3
 #define LEVITATION_FAN_PIN 6 // PORT P4
 #define IR_SENSOR_PIN 14     // PORT P5
 #define US_TRIGGER_PIN 11    // PORT P6
@@ -50,17 +51,26 @@ Neotimer usTimer = Neotimer(15);
 Neotimer irTimer = Neotimer(50);
 Neotimer logTimer = Neotimer(500);
 Neotimer turnTimer = Neotimer(MIN_TIME_TO_TURN);
-
 volatile uint32_t prevTime;
+
+const double sensFacGyro = 131.0 * 1000.0;
+const double sensFacAccel = 8192.0 * 1000.0;
+volatile int16_t velX{0}, velY{0}, velZ{0};
 volatile int64_t curSpeed{0};
-volatile int32_t curAngle = 0;
-volatile int32_t initAngle = curAngle;
+double curAngle = 90;
+double initAngle = curAngle;
+double targetAngle = curAngle;
+volatile int32_t rawCurAngle = curAngle * sensFacGyro;
 volatile uint8_t servoPos = 90;
 volatile float distWall, distFront;
-const double sensFac = 131.0 * 1000.0;
 
 void setup() {
   using namespace MPU6050_IMU;
+  pinMode(A5, INPUT_PULLUP);
+  pinMode(A4, INPUT_PULLUP);
+
+  Wire.begin();
+  Wire.setWireTimeout(3000, true);
 
 #if DEBUG
   Serial.begin(9600);
@@ -71,10 +81,15 @@ void setup() {
 
   // Initialize MPU6050
   mpu.setTempSensorEnabled(false);
-  mpu.setClockSource(MPU6050_CLOCK_PLL_XGYRO);
-  mpu.setFullScaleAccelRange(MPU6050_ACCEL_FS_4);
-  mpu.setFullScaleGyroRange(MPU6050_GYRO_FS_250);
-  mpu.setSleepEnabled(false);
+  mpu.initialize();
+  // mpu.setClockSource(MPU6050_CLOCK_PLL_XGYRO);
+  // mpu.setFullScaleAccelRange(MPU6050_ACCEL_FS_4);
+  // mpu.setFullScaleGyroRange(MPU6050_GYRO_FS_250);
+  // mpu.setSleepEnabled(false);
+
+  Serial.println(F("Testing device connections..."));
+  Serial.println(mpu.testConnection() ? F("MPU6050 connection successful") : F("MPU6050 connection failed"));
+
 
   // Calibration
   // mpu.CalibrateGyro();
@@ -88,7 +103,7 @@ void setup() {
 
   // Fan Setup
   pinMode(LEVITATION_FAN_PIN, OUTPUT);
-  pinMode(THRUST_FAN_PIN, OUTPUT);
+  // pinMode(THRUST_FAN_PIN, OUTPUT);
 
   // IR Sensor Setup
   sideSensor.begin(IR_SENSOR_PIN);
@@ -106,13 +121,24 @@ void loop() {
   uint32_t curTime = millis();
   uint32_t dt = curTime - prevTime;
 
+  double curD;
   if (dt > 15) {
     mpu.getMotion6(&accelX, &accelY, &accelZ, &gyroX, &gyroY, &gyroZ);
-    curAngle += dt * gyroZ;
+    rawCurAngle += dt * gyroZ;
+    curD = rawCurAngle / sensFacGyro;
+
+    // Serial.println(accelZ);
+
+    velX += dt * accelX;
+    velY += dt * accelY;
+    velZ += dt * accelZ;
+
+    double serveA = 90.0 - (targetAngle - curD);
+    uint8_t servoAngle = constrain(serveA, SERVO_MIN_MAX, 180 - SERVO_MIN_MAX);
+    servo.write(servoAngle);
+    Serial.println(curD);
 
     prevTime = curTime;
-
-    
   }
 
   if (usTimer.repeat()) {
@@ -125,23 +151,32 @@ void loop() {
 
 #if DEBUG
   if (logTimer.repeat()) {
-    double curD = curAngle / sensFac;
-    servo.write(curD);
+    // Serial.println("Print LINE");
+    // Serial.println(rawCurAngle);
+    // Serial.println(targetAngle);
+    // Serial.println(curD);
+    // Serial.print("Cur Angle: ");
+    // Serial.println(curD);
+    // Serial.print("Dist Front: ");
+    // Serial.println(distFront);
+    // Serial.print("Dist Wall: ");
+    // Serial.println(distWall);
 
-    Serial.println("Print LINE");
-    Serial.print("Cur Angle: ");
-    Serial.println(curD);
-    Serial.print("Dist Front: ");
-    Serial.println(distFront);
-    Serial.print("Dist Wall: ");
-    Serial.println(distWall);
+    // double pVelX = velX / sensFacAccel;
+    // double pVelY = velY / sensFacAccel;
+    // double pVelZ = velZ / sensFacAccel;
+    // Serial.print("Velocity: ");
+    // Serial.println(pVelX);
+    // Serial.println(pVelY);
+    // Serial.println(pVelZ);
+    // Serial.println("");
   }
 #endif
 
   machine.run();
 }
 
-void LockAngle() {}
+void lockTargetAngle(double angle) { targetAngle = angle; }
 
 void StraightPathState() {
   // Serial.print("Straight State: ");
@@ -153,6 +188,8 @@ boolean CheckIfOnTurn() {
   if (TURN_TRIGGER_DIST > distFront && distFront > 0) {
     Serial.println("TRIGGER");
     turnTimer.start();
+    double deltaAngle = (1) ? 90.0 : -90.0;
+    lockTargetAngle(targetAngle - deltaAngle);
     return true;
   }
   return false;
