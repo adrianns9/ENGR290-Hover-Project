@@ -9,14 +9,15 @@
 
 // Threshold Values
 #define TURN_TRIGGER_DIST 5
+#define TURN_SIDE_DIST 25
 #define MIN_TIME_TO_TURN 5000 // ms
 #define SERVO_MIN_MAX 30
 
 // Pin Configuration
-#define SERVO_PIN 5          // CONNECT TO PORT P9
-#define THRUST_FAN_PIN 9     // PORT P3
+#define SERVO_PIN 5          // CONNECT TO PORT P3
+#define THRUST_FAN_PIN 9     // PORT P9
 #define LEVITATION_FAN_PIN 6 // PORT P4
-#define IR_SENSOR_PIN 14     // PORT P5
+#define IR_SENSOR_PIN A0     // PORT P5
 #define US_TRIGGER_PIN 11    // PORT P6
 #define US_ECHO_PIN 2
 
@@ -36,8 +37,7 @@ boolean CheckIfOnTurn();
 void TurnState();
 boolean CheckIfOnStraight();
 
-enum curState { STRAIGHT, LEFT, RIGHT };
-
+enum HOVER_STATE { STRAIGHT, LEFT, RIGHT };
 StateMachine machine = StateMachine();
 State *S0 = machine.addState(&StraightPathState);
 State *S1 = machine.addState(&TurnState);
@@ -81,20 +81,18 @@ void setup() {
 
   // Initialize MPU6050
   mpu.setTempSensorEnabled(false);
-  mpu.initialize();
-  // mpu.setClockSource(MPU6050_CLOCK_PLL_XGYRO);
-  // mpu.setFullScaleAccelRange(MPU6050_ACCEL_FS_4);
-  // mpu.setFullScaleGyroRange(MPU6050_GYRO_FS_250);
-  // mpu.setSleepEnabled(false);
+  mpu.setClockSource(MPU6050_CLOCK_PLL_XGYRO);
+  mpu.setFullScaleAccelRange(MPU6050_ACCEL_FS_4);
+  mpu.setFullScaleGyroRange(MPU6050_GYRO_FS_250);
+  mpu.setSleepEnabled(false);
 
   Serial.println(F("Testing device connections..."));
-  Serial.println(mpu.testConnection() ? F("MPU6050 connection successful") : F("MPU6050 connection failed"));
-
+  Serial.println(mpu.testConnection() ? F("MPU6050 connection successful")
+                                      : F("MPU6050 connection failed"));
 
   // Calibration
-  // mpu.CalibrateGyro();
-  // mpu.CalibrateAccel();
-  mpu.setZGyroOffset(3);
+  mpu.CalibrateGyro();
+  mpu.CalibrateAccel();
   mpu.PrintActiveOffsets();
 
   // Servo Setup
@@ -103,7 +101,7 @@ void setup() {
 
   // Fan Setup
   pinMode(LEVITATION_FAN_PIN, OUTPUT);
-  // pinMode(THRUST_FAN_PIN, OUTPUT);
+  pinMode(THRUST_FAN_PIN, OUTPUT);
 
   // IR Sensor Setup
   sideSensor.begin(IR_SENSOR_PIN);
@@ -126,8 +124,6 @@ void loop() {
     mpu.getMotion6(&accelX, &accelY, &accelZ, &gyroX, &gyroY, &gyroZ);
     rawCurAngle += dt * gyroZ;
     curD = rawCurAngle / sensFacGyro;
-
-    // Serial.println(accelZ);
 
     velX += dt * accelX;
     velY += dt * accelY;
@@ -179,8 +175,11 @@ void loop() {
 void lockTargetAngle(double angle) { targetAngle = angle; }
 
 void StraightPathState() {
-  // Serial.print("Straight State: ");
-  // Serial.println(distFront);
+#if DEBUG
+  if (logTimer.repeat()) {
+    Serial.println("State: Straight");
+  }
+#endif
 }
 
 boolean CheckIfOnTurn() {
@@ -188,7 +187,7 @@ boolean CheckIfOnTurn() {
   if (TURN_TRIGGER_DIST > distFront && distFront > 0) {
     Serial.println("TRIGGER");
     turnTimer.start();
-    double deltaAngle = (1) ? 90.0 : -90.0;
+    double deltaAngle = (TURN_SIDE_DIST > distWall) ? 90.0 : -90.0;
     lockTargetAngle(targetAngle - deltaAngle);
     return true;
   }
