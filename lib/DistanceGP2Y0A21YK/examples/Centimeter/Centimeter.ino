@@ -6,7 +6,7 @@ int distance;
 void setup()
 {
   Serial.begin(9600);
-  Dist.begin(0);
+  Dist.begin(14);
 }
 
 void loop()
