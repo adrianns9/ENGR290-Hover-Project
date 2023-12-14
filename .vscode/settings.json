@@ -60,6 +60,8 @@
   "C_Cpp_Runner.useLinkTimeOptimization": false,
   "C_Cpp_Runner.msvcSecureNoWarnings": false,
   "files.associations": {
-    "ir_sensor.h": "c"
+    "ir_sensor.h": "c",
+    "complex": "cpp",
+    "valarray": "cpp"
   }
 }
